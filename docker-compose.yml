@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: codeassistant-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: codeassistant
+      POSTGRES_USER: codeassistant
+      POSTGRES_PASSWORD: codeassistant
+    ports:
+      - "5433:5432"
+    volumes:
+      - codeassistant-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codeassistant"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    container_name: codeassistant-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/codeassistant
+      DATABASE_USERNAME: codeassistant
+      DATABASE_PASSWORD: codeassistant
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      AI_PROVIDER: ${AI_PROVIDER:-ollama}
+      LLM_MODEL: ${LLM_MODEL:-llama3.1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-768}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      HUGGINGFACE_API_KEY: ${HUGGINGFACE_API_KEY:-}
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: codeassistant-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${BACKEND_URL:-http://localhost:8080}
+    ports:
+      - "3000:3000"
+
+volumes:
+  codeassistant-pgdata:

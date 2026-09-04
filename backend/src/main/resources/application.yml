@@ -1,0 +1,67 @@
+spring:
+  application:
+    name: github-ai-code-assistant
+
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5433/codeassistant}
+    username: ${DATABASE_USERNAME:codeassistant}
+    password: ${DATABASE_PASSWORD:codeassistant}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+        jdbc:
+          batch_size: 20
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  security:
+    oauth2:
+      client:
+        registration:
+          github:
+            client-id: Ov23li5QEtlkYkxAUKvL
+            client-secret: 638965e19ee2e0072d69c043029d05aae2e7c746
+            scope:
+              - read:user
+              - user:email
+              - repo
+
+server:
+  port: 8080
+
+app:
+  frontend-url: ${FRONTEND_URL:http://localhost:3000}
+
+  ai:
+    provider: ${AI_PROVIDER:ollama}
+    llm-model: ${LLM_MODEL:llama3.1}
+    embedding-model: ${EMBEDDING_MODEL:nomic-embed-text}
+    embedding-dimension: ${EMBEDDING_DIMENSION:768}
+    ollama:
+      base-url: ${OLLAMA_URL:http://localhost:11434}
+    huggingface:
+      api-key: ${HUGGINGFACE_API_KEY:}
+      api-url: ${HUGGINGFACE_API_URL:https://api-inference.huggingface.co}
+
+  indexing:
+    max-file-size-bytes: 200000
+    chunk-size-lines: 100
+    chunk-overlap-lines: 20
+    thread-pool-size: 4
+
+  rag:
+    top-k: 5
+    max-history-messages: 6
+
+logging:
+  level:
+    com.example.codeassistant: INFO
+    org.springframework.security: WARN

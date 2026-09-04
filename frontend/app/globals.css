@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background-color: #0d1117;
+  }
+  body {
+    @apply bg-ink text-slate-200 font-sans antialiased;
+  }
+  ::selection {
+    background-color: #5eead4;
+    color: #0d1117;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: #232b3b;
+    border-radius: 4px;
+  }
+}
