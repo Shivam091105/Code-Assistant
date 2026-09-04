@@ -48,10 +48,10 @@ app:
     ollama:
       base-url: ${OLLAMA_URL:http://localhost:11434}
     huggingface:
-      api-key: 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
+      api-key:
       api-url: ${HUGGINGFACE_API_URL:https://api-inference.huggingface.co}
     groq:
-      api-key: ${GROQ_API_KEY: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}
+      api-key: ${GROQ_API_KEY:}
       api-url: ${GROQ_API_URL:https://api.groq.com/openai/v1}
 
   indexing:
