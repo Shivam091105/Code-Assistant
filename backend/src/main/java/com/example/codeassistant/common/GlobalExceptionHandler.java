@@ -27,7 +27,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(UpstreamServiceException.class)
     public ResponseEntity<ApiError> handleUpstream(UpstreamServiceException ex) {
-        log.error("Upstream service call failed: {}", ex.getMessage());
+        log.error("Upstream service call failed: {}", ex.getMessage(), ex.getCause());
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(new ApiError(502, ex.getMessage()));
     }
