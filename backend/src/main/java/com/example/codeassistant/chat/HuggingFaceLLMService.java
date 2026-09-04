@@ -20,7 +20,7 @@ import java.util.List;
  * token-level streaming.
  */
 @Service
-@ConditionalOnProperty(name = "app.ai.provider", havingValue = "huggingface")
+@ConditionalOnProperty(name = "app.ai.llm-provider", havingValue = "huggingface")
 public class HuggingFaceLLMService implements LLMService {
 
     private final WebClient webClient;

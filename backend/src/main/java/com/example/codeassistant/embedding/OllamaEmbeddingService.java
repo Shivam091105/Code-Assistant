@@ -18,7 +18,7 @@ import java.util.List;
  * Active by default (app.ai.provider=ollama or unset).
  */
 @Service
-@ConditionalOnProperty(name = "app.ai.provider", havingValue = "ollama", matchIfMissing = true)
+@ConditionalOnProperty(name = "app.ai.embedding-provider", havingValue = "ollama", matchIfMissing = true)
 public class OllamaEmbeddingService implements EmbeddingService {
 
     private final WebClient webClient;

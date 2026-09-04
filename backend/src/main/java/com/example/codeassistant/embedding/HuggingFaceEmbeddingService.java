@@ -15,7 +15,7 @@ import java.util.List;
  * Only active when app.ai.provider=huggingface.
  */
 @Service
-@ConditionalOnProperty(name = "app.ai.provider", havingValue = "huggingface")
+@ConditionalOnProperty(name = "app.ai.embedding-provider", havingValue = "huggingface")
 public class HuggingFaceEmbeddingService implements EmbeddingService {
 
     private final WebClient webClient;

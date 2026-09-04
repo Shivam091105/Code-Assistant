@@ -17,7 +17,7 @@ import reactor.core.publisher.Flux;
  * Active by default (app.ai.provider=ollama or unset).
  */
 @Service
-@ConditionalOnProperty(name = "app.ai.provider", havingValue = "ollama", matchIfMissing = true)
+@ConditionalOnProperty(name = "app.ai.llm-provider", havingValue = "ollama", matchIfMissing = true)
 public class OllamaLLMService implements LLMService {
 
     private final WebClient webClient;
