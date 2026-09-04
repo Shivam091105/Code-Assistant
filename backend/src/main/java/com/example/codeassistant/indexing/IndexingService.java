@@ -3,11 +3,10 @@ package com.example.codeassistant.indexing;
 import com.example.codeassistant.embedding.EmbeddingService;
 import com.example.codeassistant.github.GitHubService;
 import com.example.codeassistant.github.GitHubTreeDto;
+import com.example.codeassistant.indexing.ChunkPersistenceService.ChunkToInsert;
 import com.example.codeassistant.repository.IndexingStatus;
 import com.example.codeassistant.repository.RepositoryEntity;
 import com.example.codeassistant.repository.RepositoryJpaRepository;
-import com.example.codeassistant.vector.CodeChunk;
-import com.example.codeassistant.vector.CodeChunkJpaRepository;
 import com.example.codeassistant.vector.PgVectorUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,7 +38,7 @@ public class IndexingService {
     private static final Logger log = LoggerFactory.getLogger(IndexingService.class);
 
     private final RepositoryJpaRepository repositoryJpaRepository;
-    private final CodeChunkJpaRepository codeChunkJpaRepository;
+    private final ChunkPersistenceService chunkPersistenceService;
     private final GitHubService gitHubService;
     private final FileFilter fileFilter;
     private final CodeChunker codeChunker;
@@ -47,14 +46,14 @@ public class IndexingService {
     private final IndexingWorker indexingWorker;
 
     public IndexingService(RepositoryJpaRepository repositoryJpaRepository,
-                            CodeChunkJpaRepository codeChunkJpaRepository,
+                            ChunkPersistenceService chunkPersistenceService,
                             GitHubService gitHubService,
                             FileFilter fileFilter,
                             CodeChunker codeChunker,
                             EmbeddingService embeddingService,
                             IndexingWorker indexingWorker) {
         this.repositoryJpaRepository = repositoryJpaRepository;
-        this.codeChunkJpaRepository = codeChunkJpaRepository;
+        this.chunkPersistenceService = chunkPersistenceService;
         this.gitHubService = gitHubService;
         this.fileFilter = fileFilter;
         this.codeChunker = codeChunker;
@@ -137,27 +136,14 @@ public class IndexingService {
         List<List<Float>> embeddings = embeddingService.embedBatch(
                 pending.stream().map(p -> p.chunk().content()).toList());
 
-        persistChunks(repository.getId(), pending, embeddings);
-    }
-
-    /**
-     * Deletes old chunks and saves the new ones as two repository calls
-     * (each transactional on its own via Spring Data) rather than one
-     * transaction per chunk - avoids both a giant multi-minute transaction
-     * and hundreds of tiny ones.
-     */
-    void persistChunks(Long repositoryId, List<PendingChunk> pending, List<List<Float>> embeddings) {
-        codeChunkJpaRepository.deleteAllByRepositoryId(repositoryId);
-
-        List<CodeChunk> entities = new ArrayList<>(pending.size());
+        List<ChunkToInsert> toInsert = new ArrayList<>(pending.size());
         for (int i = 0; i < pending.size(); i++) {
             PendingChunk p = pending.get(i);
             String embeddingLiteral = PgVectorUtils.toPgVectorLiteral(embeddings.get(i));
-            entities.add(new CodeChunk(
-                    repositoryId, p.filePath(), p.chunk().content(),
-                    p.chunk().startLine(), p.chunk().endLine(), embeddingLiteral));
+            toInsert.add(new ChunkToInsert(p.filePath(), p.chunk().content(), p.chunk().startLine(), p.chunk().endLine(), embeddingLiteral));
         }
-        codeChunkJpaRepository.saveAll(entities);
+
+        chunkPersistenceService.replaceChunks(repository.getId(), toInsert);
     }
 
     record PendingChunk(String filePath, CodeChunker.Chunk chunk) {
