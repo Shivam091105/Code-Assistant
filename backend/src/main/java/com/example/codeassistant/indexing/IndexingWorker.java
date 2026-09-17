@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 public class IndexingWorker {
 
     @Async("indexingExecutor")
-    public void runIndexingJob(Long repositoryId, String accessToken, IndexingService indexingService) {
-        indexingService.runIndexingJob(repositoryId, accessToken);
+    public void runIndexingJob(Long repositoryId, String accessToken, boolean fullReindex, IndexingService indexingService) {
+        indexingService.runIndexingJob(repositoryId, accessToken, fullReindex);
     }
 }

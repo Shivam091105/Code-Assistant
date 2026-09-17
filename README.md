@@ -15,6 +15,9 @@ simple enough to explain confidently**, not that it scales to production.
 - GitHub OAuth2 login (Spring Security)
 - Repository dashboard with per-repo indexing status
 - Background indexing pipeline: fetch → filter → chunk → embed → store
+- **Incremental indexing** — re-indexing only re-embeds files whose GitHub
+  blob SHA changed since the last run, and reconciles deletions; a full
+  from-scratch re-index is still available on demand
 - Semantic code search via PostgreSQL + pgvector (cosine similarity)
 - RAG-based Q&A with source file/line citations
 - Real token-level streaming over Server-Sent Events (SSE)
@@ -59,11 +62,17 @@ Question → Question embedding → pgvector similarity search (top 5)
 ### Indexing pipeline
 
 ```
-GitHub repo → fetch file tree → filter (extension/path) → read contents
+GitHub repo → fetch file tree → filter (extension/path)
+            → diff blob SHAs against indexed_files (last-indexed state)
+            → read contents of new/changed files only
             → line-based chunking (100 lines, 20 overlap)
-            → generate embeddings → store chunks in pgvector
+            → generate embeddings for those chunks only
+            → replace chunks for changed/deleted files, upsert indexed_files
             → status = COMPLETED (or FAILED with an error message)
 ```
+
+Unchanged files (same blob SHA as last time) are skipped entirely — no
+content fetch, no chunking, no embedding call for them.
 
 ## Tech stack
 
@@ -85,7 +94,9 @@ backend/
     user/         User entity + /api/auth/me
     github/       GitHubClient (raw HTTP), GitHubService (domain layer)
     repository/   RepositoryEntity, ownership checks, dashboard endpoints
-    indexing/     FileFilter, CodeChunker, IndexingService/Worker
+    indexing/     FileFilter, CodeChunker, IndexingService/Worker,
+                  IndexedFile (blob-SHA tracking for incremental indexing),
+                  ChunkPersistenceService (chunk + tracking-row writes)
     embedding/    EmbeddingService interface + Ollama/HuggingFace impls
     vector/       CodeChunk entity + native pgvector similarity query
     rag/          PromptBuilder + RagService
@@ -103,13 +114,18 @@ docker-compose.yml
 
 ## Database schema
 
-Four tables only — see `backend/src/main/resources/db/migration/V1__init_schema.sql`.
+Five tables — see `backend/src/main/resources/db/migration/V1__init_schema.sql`
+and `V2__indexed_files.sql`.
 
 - **users** — githubId, username, email, avatarUrl
 - **repositories** — one row per repo a user has indexed or is indexing;
   `indexing_status` is `NOT_INDEXED | INDEXING | COMPLETED | FAILED`
 - **code_chunks** — repositoryId, filePath, content, startLine, endLine,
   `embedding vector(768)` (pgvector column, cosine-similarity indexed)
+- **indexed_files** — repositoryId, filePath, blobSha, updatedAt; one row
+  per file we've chunked/embedded, storing the GitHub blob SHA it was
+  indexed at. This is the state that makes re-indexing incremental — see
+  "Indexing flow" below.
 - **chat_messages** — userId, repositoryId, role (`USER`/`ASSISTANT`),
   content, sources
 
@@ -132,16 +148,31 @@ security context doesn't propagate to `@Async` worker threads automatically.
 ## Indexing flow
 
 1. `POST /api/repositories/{githubRepositoryId}/index`
+   (add `?full=true` to force a from-scratch re-index — see below)
 2. Backend validates the repo belongs to the caller (or creates the local
    tracking row from the caller's own GitHub repo list)
 3. Status flips to `INDEXING` immediately; the request returns
 4. A background job (Spring `ThreadPoolTaskExecutor`, no external
-   queue/broker) fetches the file tree, filters files, chunks them,
-   generates embeddings, and replaces the repository's chunks
-5. Status flips to `COMPLETED`, or `FAILED` with a stored error message
+   queue/broker) fetches the file tree and diffs it against `indexed_files`:
+   - **Unchanged** (same blob SHA as last time) → skipped entirely
+   - **New or changed** → content fetched, re-chunked, re-embedded
+   - **Removed from the repo** → its chunks and tracking row are deleted
+5. Only the changed/new chunks are written; `indexed_files` is updated to
+   the current blob SHAs
+6. Status flips to `COMPLETED`, or `FAILED` with a stored error message
 
-Re-indexing just deletes the repo's existing chunks and repeats the pipeline
-— no incremental indexing or webhooks in this version.
+This is what makes re-indexing incremental: GitHub's tree API already
+returns a content hash (the blob SHA) for every file, so comparing SHAs is
+enough to tell what changed without hashing anything ourselves. On a repeat
+run over a repo with only a few edited files, indexing costs a handful of
+GitHub fetches and embedding calls instead of reprocessing the whole repo.
+
+There's still no webhook-triggered auto-reindexing — you trigger indexing
+manually (e.g. clicking "Index" again), it's just cheap when little has
+changed. Passing `?full=true` wipes `code_chunks` and `indexed_files` for
+the repo first, so every file is treated as new; use this after changing
+chunking or embedding settings, or if the index is ever suspected to be
+out of sync with the repo.
 
 ## Chat flow
 
@@ -248,6 +279,18 @@ model with a different embedding dimension, update both `EMBEDDING_DIMENSION`
 and the `vector(768)` dimension in
 `V1__init_schema.sql` before the first run, then re-index your repositories.
 
+## Troubleshooting
+
+- **Indexing fails with `UpstreamServiceException: Failed to generate
+  embedding via Ollama` / `Connection refused ... 11434`** — Ollama isn't
+  reachable at `OLLAMA_URL`. Confirm it's running (`ollama list`), that
+  `nomic-embed-text` is pulled, and — if the backend runs in Docker — that
+  `OLLAMA_URL` points at the host (`http://host.docker.internal:11434`),
+  not `localhost`. A failed indexing run doesn't leave partial data behind:
+  nothing is persisted for a file until its embedding succeeds, so simply
+  re-running indexing after fixing Ollama picks up exactly where it left
+  off (the changed files are retried, unaffected files stay skipped).
+
 ## Testing
 
 ```bash
@@ -263,8 +306,9 @@ message/source serialization.
 
 - Line-based chunking only — no AST awareness, so a chunk can split a
   function in half
-- No incremental indexing or GitHub webhooks — re-indexing always
-  reprocesses the whole repo
+- Incremental indexing is diff-based on manual trigger, not event-driven —
+  no GitHub webhooks, so a re-index still has to be requested (it's just
+  cheap once requested)
 - Retrieval is pure vector similarity — no hybrid/BM25 search or reranking
 - Conversation memory is "last few messages," not summarized or vectorized
 - Hugging Face's free inference API doesn't support real token streaming
@@ -275,7 +319,7 @@ message/source serialization.
 ## Future improvements
 
 - AST-aware chunking (split on function/class boundaries)
-- Incremental indexing via GitHub webhooks
+- GitHub webhooks to trigger incremental re-indexing automatically on push
 - Hybrid search (vector + BM25) and reranking
 - Redis caching for hot queries
 - Usage tracking and production-grade observability

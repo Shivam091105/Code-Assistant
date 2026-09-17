@@ -47,12 +47,20 @@ public class RepositoryController {
         return RepositoryDto.from(entity);
     }
 
+    /**
+     * Triggers indexing. By default this is incremental - only files that
+     * are new or changed since the last successful index are re-embedded.
+     * Pass ?full=true to force a from-scratch re-index (e.g. after changing
+     * chunking or embedding settings).
+     */
     @PostMapping("/{githubRepositoryId}/index")
-    public RepositoryDto index(@PathVariable Long githubRepositoryId, Authentication authentication) {
+    public RepositoryDto index(@PathVariable Long githubRepositoryId,
+                                @RequestParam(name = "full", defaultValue = "false") boolean fullReindex,
+                                Authentication authentication) {
         User user = currentUser.resolve(authentication);
         RepositoryEntity entity = repositoryService.findOwnedOrCreateFromGitHub(authentication, user, githubRepositoryId);
         String accessToken = gitHubService.resolveAccessToken(authentication);
-        indexingService.startIndexing(entity.getId(), accessToken);
+        indexingService.startIndexing(entity.getId(), accessToken, fullReindex);
         // re-fetch to reflect the just-applied INDEXING status
         RepositoryEntity refreshed = repositoryService.getOwned(entity.getId(), user);
         return RepositoryDto.from(refreshed);
